@@ -1,291 +1,415 @@
-import { derivekey, getorCreateSalt,encryptJSON,decryptJSON,estimateSizeBytes} from './crypto.js';
-import { openDB, putEncrypted, getAll, del,clear} from './db.js';
-import { setCryptoKey as setSyncKey ,startSync, getRemoteSnapshot, clearTimeline, getQueueSizeEstimate} from './sync.js';
-import { SetCryptoKey as setSyncKey,startSync, getRemoteSnapshot, clearTimeline, getQueueSizeEstimate } from './sync.js';
-import{ setCryptoKey as setSearchKey , search } from'./search.js';
-import { setCryptoKey as setNotify, requestPermission, scheduleNotification, listNotificationLog} from './notifications.js';
+import { deriveKey, getOrCreateSalt, encryptJSON, decryptJSON, estimateSizeBytes } from './crypto.js';
+import { openDB, putEncrypted, getAll, get, del, clear } from './db.js';
+import { setCryptoKey as setSyncKey, startSync, getRemoteSnapshot, clearTimeline, getQueueSizeEstimate } from './sync.js';
+import { setCryptoKey as setSearchKey, search } from './search.js';
+import { setCryptoKey as setNotifyKey, requestPermission, scheduleNotification, listNotificationLog } from './notification.js';
 import { setSimulator } from './simulator.js';
 
 let cryptoKey;
 let unlocked = false;
 
+function toast(message){
+    if(!els.snackbar){
+        const snackbar = document.getElementById('snackbar');
+        if(!snackbar) return;
+        els.snackbar = snackbar;
+    }
+
+    els.snackbar.textContent = message;
+    els.snackbar.hidden = false;
+    setTimeout(() => { if(els.snackbar) els.snackbar.hidden = true; }, 3000);
+}
+
+function showSpinner(visible){
+    if(!els.spinner){
+        const spinner = document.getElementById('spinner');
+        if(!spinner) return;
+        els.spinner = spinner;
+    }
+    if(els.spinner) els.spinner.hidden = !visible;
+}
+
 (async function registerSW(){
     if('serviceWorker' in navigator){
-    try{
-        const reg = await navigator.serviceWorker.register('./service-worker.js', { scope : './'});
-        conse.log('SW registered',reg);
-    }
-    catch(e){
-        console.warn('SW registered',e);
-    }
+        try{
+            const reg = await navigator.serviceWorker.register('./service-worker.js', { scope: './' });
+            console.log('SW registered', reg);
+        }
+        catch(e){
+            console.warn('SW registration failed', e);
+        }
     }
 })();
 
-async function triggerBackgroundSync(){
-    const reg = await navigator.serviceWorker.getRegistration();
-    try { await reg?.sync?.register('sync-actions');}
-    catch(e){ console.warn('Background sync unavailable',e);}
-}
-
 async function unlock(passphrase){
-    const key = await derivekey(passphrase, getorCreateSalt());
-    cryptoKey = key;
-    unlocked = true;
-    setSyncKey(cryptoKey);
-    setSearchKey(cryptoKey);
-    setNotifyKey(cryptoKey);
-    await refreshAll();
+    try {
+        cryptoKey = await deriveKey(passphrase, getOrCreateSalt());
+        unlocked = true;
+        setSyncKey(cryptoKey);
+        setSearchKey(cryptoKey);
+        setNotifyKey(cryptoKey);
+        await refreshAll();
+        toast('Unlocked successfully');
+    } catch (err) {
+        console.error('Unlock failed', err);
+        unlocked = false;
+        toast('Unlock failed: check passphrase');
+        throw err;
+    }
 }
 
 const els = {
-     themeToggle: document.getElementById('theme-toggle'),
-     loadSamplesBtn: document.getElementById('load-samples-btn'),
-     passphrase: document.getElementById('passphrase'),
-     unlockBtn: document.getElementById('unlock-btn'),
-     itemForm: document.getElementById('item-form'),
-     itemTitle: document.getElementById('item-title'),
-     itemContent: document.getElementById('item-content'),
-     itemsList: document.getElementById('items-List'),
-     undoBtn: document.getElementById('undo-btn'),
-     redoBtn: document.getElementById('redo-btn'),
-     searchInput: document.getElementById('search-input'),
-     searchResults: document.getElementById('search-results'),
-     timeline: document.getElementById('timeline'),
-     syncNowBtn: document.getElementById('sync-now-btn'),
-     clearTimelineBtn: document.getElementById('clear-timeline-btn'),
-     overviewItems: document.getElementById('overview-items'),
-     overviewRemote: document.getElementById('overview-remote'),
-     overviewQueued: document.getElementById('overview-queued'),
-     remoteList: document.getElementById('./remote-List'),
-     spinner: document.getElementById('spinner'),
-     snackbar: document.getElementById('snackbar'),
+    themeToggle: document.getElementById('theme-toggle'),
+    loadSamplesBtn: document.getElementById('load-samples-btn'),
+    passphrase: document.getElementById('passphrase'),
+    unlockBtn: document.getElementById('unlock-btn'),
+    itemForm: document.getElementById('item-form'),
+    itemTitle: document.getElementById('item-title'),
+    itemContent: document.getElementById('item-content'),
+    itemsList: document.getElementById('items-list'),
+    undoBtn: document.getElementById('undo-btn'),
+    redoBtn: document.getElementById('redo-btn'),
+    searchInput: document.getElementById('search-input'),
+    searchResults: document.getElementById('search-results'),
+    timeline: document.getElementById('timeline'),
+    syncNowBtn: document.getElementById('sync-now-btn'),
+    clearTimelineBtn: document.getElementById('clear-timeline-btn'),
+    overviewItems: document.getElementById('overview-items'),
+    overviewRemote: document.getElementById('overview-remote'),
+    overviewQueued: document.getElementById('overview-queued'),
+    remoteList: document.getElementById('remote-list'),
+    spinner: document.getElementById('spinner'),
+    snackbar: document.getElementById('snackbar'),
 };
 
 function applyTheme(theme){
     document.body.dataset.theme = theme;
 }
+
 function initTheme(){
     const saved = localStorage.getItem('offlineFirst.theme') || 'light';
     applyTheme(saved);
-    els.themeToggle.textContent = saved === 'dark'? '☀️ Theme' : '🌙 Theme';
+    if(els.themeToggle) els.themeToggle.textContent = saved === 'dark' ? '☀️ Theme' : '🌙 Theme';
 }
 
 els.themeToggle?.addEventListener('click', () => {
     const cur = document.body.dataset.theme || 'light';
     const next = cur === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('offflineFirst.theme',next);
+    localStorage.setItem('offlineFirst.theme', next);
     applyTheme(next);
-    els.themeToggle.textContent = next === 'dark'? '☀️ Theme' : '🌙 Theme';
+    els.themeToggle.textContent = next === 'dark' ? '☀️ Theme' : '🌙 Theme';
 });
 
 function updateNetworkStatus(){
-    const online = navigator.online;
+    const online = navigator.onLine;
     const conn = navigator.connection || {};
     const type = conn.effectiveType || 'unknown';
     const down = conn.downlink || 0;
+
     if(els.syncNowBtn){
         if(!online || type.includes('2g') || down < 0.5){
             els.syncNowBtn.disabled = !online;
-        }
-        else{
+        } else {
             els.syncNowBtn.disabled = false;
         }
     }
-    
 }
-window.addEvntListener('online',updateNetworkStatus);
-window.addEventListener('offline',updateNetworkStatus);
-if(navigator.connection) navigator.connection.addEventListener('change',updateNetworkStatus);
+
+window.addEventListener('online', updateNetworkStatus);
+window.addEventListener('offline', updateNetworkStatus);
+if(navigator.connection) navigator.connection.addEventListener('change', updateNetworkStatus);
+
+if(els.loadSamplesBtn) {
+    els.loadSamplesBtn.addEventListener('click', async () => {
+        if(!unlocked) return alert('Unlock first');
+        await loadSamples();
+        await listItems();
+        await updateSearchResults();
+        await renderTimeline();
+        await renderRemote();
+        toast('Samples loaded');
+    });
+}
+
+async function putItem(item){
+    const enc = await encryptJSON(cryptoKey, item);
+    await putEncrypted('items', { id: item.id, ...enc });
+}
 
 async function listItems(){
     if(!unlocked) return;
     const encs = await getAll('items');
     const items = [];
-    for(const r of encs) items.push(await decryptJSON(cryptoKey,r));
-    items.sort((a,b)=> b.updatedAt - a.updatedAt);
-    if(els.overviewItems) els.overviewItems.textContent = items.length;
+
+    for(const r of encs){
+        items.push(await decryptJSON(cryptoKey, r));
+    }
+
+    items.sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    if(els.overviewItems) els.overviewItems.textContent = String(items.length);
+    if(!els.itemsList) return;
     els.itemsList.innerHTML = '';
+
     for(const it of items){
-        const li = document.getElementById('li');
-        li.innerHTML = '<strong>${it.title}</strong><br/><small>${ new Date(it.updateAt).toLocaleString()}</small><p>${it.content}</p>';
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${it.title}</strong><br/><small>${new Date(it.updatedAt).toLocaleString()}</small><p>${it.content}</p>`;
         const row = document.createElement('div');
         row.className = 'row';
         const editBtn = document.createElement('button'); editBtn.textContent = 'Edit';
-        const delBtn = document.createElement('button'); delBtn.textContent = 'Deleete';
-        row.appendChild(editBtn); row.appendChild(delBtn);
-        li.appendChild(row);
+        const delBtn = document.createElement('button'); delBtn.textContent = 'Delete';
+
         editBtn.onclick = async () => {
-            const title = prompt('New title', it.title) ?? it.content;
-            const content = prompt('New content', it.content) ?? it.content;
-            const updated = { ...it,title,content, updatedAt: Date.now(), interactions: (it.interactions || 0)+1, version: ( it.version || 0)+1};
-           await recordAction('item:update',updated);
-           await putItem(updated);
-           await listItems();
-           await updateSearchResults();
+            const title = prompt('New title', it.title) || it.title;
+            const content = prompt('New content', it.content) || it.content;
+            const updated = {
+                ...it,
+                title,
+                content,
+                updatedAt: Date.now(),
+                interactions: (it.interactions || 0) + 1,
+                version: (it.version || 0) + 1,
+            };
+            await recordAction('item:update', updated);
+            await putItem(updated);
+            await listItems();
+            await updateSearchResults();
         };
+
         delBtn.onclick = async () => {
-            await recordAction('item:delete',{ id: it.id});
+            await recordAction('item:delete', { id: it.id });
             await del('items', it.id);
             await listItems();
             await updateSearchResults();
         };
-        els.itemsList.appendChild(li);
-}
-}
 
-async function putItem(item){
-    const enc = await encryptJSON(cryptoKey, item);
-    await putEncrypted('items', { id: item.id, ...enc});
+        row.appendChild(editBtn);
+        row.appendChild(delBtn);
+        li.appendChild(row);
+        els.itemsList.appendChild(li);
+    }
 }
 
 async function updateOverviewQueued(){
     const size = await getQueueSizeEstimate();
-    if(els.overviewQuesued) els.overviewQueued.textContent = size;
+    if(els.overviewQueued) els.overviewQueued.textContent = String(size);
 }
 
-async function recordAction(type,payload){
-    const action = { id : 'a-' + Date.now() + '-' + Math.random(), type, payload, ts: Date.now()};
+async function recordAction(type, payload){
+    const action = { id: 'a-' + Date.now() + '-' + Math.random(), type, payload, ts: Date.now() };
     const enc = await encryptJSON(cryptoKey, action);
-    await putEncrypted('actions', { id: action.id, ...enc});
+    await putEncrypted('actions', { id: action.id, ...enc });
     await updateOverviewQueued();
-    toast('${type} queued');
+    toast(`${type} queued`);
 }
 
 let undoStack = [];
 let redoStack = [];
+
 async function pushHistory(entry){
     undoStack.push(entry);
     redoStack = [];
 }
+
 async function undo(){
-    const entry = undoStack.pop(); if(!entry) return;
+    const entry = undoStack.pop();
+    if(!entry) return;
     redoStack.push(entry);
+
     if(entry.type === 'add'){
         await del('items', entry.item.id);
-        await recordAction('item:delete', { id: entry.item.id});
-    }
-    else if(entry.type === 'update'){
+        await recordAction('item:delete', { id: entry.item.id });
+    } else if(entry.type === 'update'){
         await putItem(entry.prev);
         await recordAction('item:update', entry.prev);
-    }
-    else if(entry.type === 'delete'){
+    } else if(entry.type === 'delete'){
         await putItem(entry.item);
         await recordAction('item:add', entry.item);
     }
+
     await listItems();
 }
+
 async function redo(){
-    const entry = redoStack.pop(); if(!entry) return;
+    const entry = redoStack.pop();
+    if(!entry) return;
     undoStack.push(entry);
+
     if(entry.type === 'add'){
         await putItem(entry.item);
         await recordAction('item:add', entry.item);
-    }
-    else if(entry.type === 'update'){
+    } else if(entry.type === 'update'){
         await putItem(entry.next);
-        await recordAction('item:update',entry.next);
-    }
-    else if(entry.type === 'delete'){
+        await recordAction('item:update', entry.next);
+    } else if(entry.type === 'delete'){
         await del('items', entry.item.id);
-        await recordAction('item:delete', { id: entry.item.id});
+        await recordAction('item:delete', { id: entry.item.id });
     }
+
     await listItems();
 }
 
-els.undoBtn.onclick =() => undo();
-els.redoBtn.onclick =() => redo();
+els.undoBtn?.addEventListener('click', undo);
+els.redoBtn?.addEventListener('click', redo);
 
-els.itemForm.addEventListener('submit', async(e) => {
-    e.preventDefault(); if(!unlocked) return alert('unlock first');
-    const item = { id: 'i-' +Date.now() + '-' + Math.random(), title: els.itemTitle.ariaValueMax.trim(),content: els.itemContent.ariaValueMax.trim(),ts: Date.now(),updatedAt: Date.now(), version:1, interactions: 1};
+els.itemForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if(!unlocked) return alert('Unlock first');
+
+    const item = {
+        id: 'i-' + Date.now() + '-' + Math.random(),
+        title: els.itemTitle?.value?.trim() || '',
+        content: els.itemContent?.value?.trim() || '',
+        ts: Date.now(),
+        updatedAt: Date.now(),
+        version: 1,
+        interactions: 1,
+    };
+
     await putItem(item);
-    await recordAction('iteem:add',item);
-    await pushHistory({type: 'add',item});
-    els.target.reset();
+    await recordAction('item:add', item);
+    await pushHistory({ type: 'add', item });
+    els.itemForm?.reset();
     await listItems();
     await updateSearchResults();
 });
 
 async function updateSearchResults(){
-    const q = els.searchInput.ariaValueMax.trim();
-    if(!q){ els.searchResults.innerHTML = ''; return;}
+    const q = els.searchInput?.value?.trim() || '';
+    if(!q){
+        if(els.searchResults) els.searchResults.innerHTML = '';
+        return;
+    }
+
     const results = await search(q);
-    els.searchResults.innerHTML = results.map(r => '<li><strong>${r.title}</strong> <small>(score ${r.score.toFixed(2)})</small><p>${r.content}</p></li>').join('');
+    if(els.searchResults){
+        els.searchResults.innerHTML = results
+            .map((r) => `<li><strong>${r.title}</strong> <small>(score ${r.score.toFixed(2)})</small><p>${r.content}</p></li>`)
+            .join('');
+    }
 }
-els.searchInput.addEventListener('input', updateSearchResults);
+
+els.searchInput?.addEventListener('input', updateSearchResults);
 
 async function renderTimeline(){
     if(!unlocked) return;
-    const encs = await getAll('timeliine');
+    const encs = await getAll('timeline');
     const rows = [];
-    for(const r of encs) rows.push(await decryptJSON(cryptoKey, r));
-    rows.sort((a,b) => a.ts - b.ts);
-    els.timeline.innerHTML = rows.map(r => {
-        const cls ='status status-${r.status}';
-return `<li><span class="${cls}">${r.status}</span><span>[${new Date(r.ts).toLocaleTimeString()}]</span> <span>${r.type}</span> <span>${r.id ? '(' + r.id + ')' : ''}</span> ${r.message ? '<em>' + r.message + '</em>' : ''}</li>`;
-    }).join('');
 
+    for(const r of encs){
+        rows.push(await decryptJSON(cryptoKey, r));
+    }
+
+    rows.sort((a, b) => a.ts - b.ts);
+
+    if(els.timeline){
+        els.timeline.innerHTML = rows
+            .map((r) => {
+                const cls = `status status-${r.status}`;
+                return `<li><span class="${cls}">${r.status}</span><span>[${new Date(r.ts).toLocaleTimeString()}]</span> <span>${r.type}</span> <span>${r.id ? '(' + r.id + ')' : ''}</span> ${r.message ? '<em>' + r.message + '</em>' : ''}</li>`;
+            })
+            .join('');
+    }
 }
-els.clearTimelineBtn.addEventListener('click', async() => { await clearTimeline(); await renderTimeline();});
+
+els.clearTimelineBtn?.addEventListener('click', async () => {
+    await clearTimeline();
+    await renderTimeline();
+});
 
 async function onConflict(localItem, remoteItem){
-    toast('Auto-merged conflict for: ${localItem.id}');
+    toast(`Auto-merged conflict for: ${localItem.id}`);
     return localItem;
 }
 
-els.syncNowBtn.addEventListener('click', async () => {
+async function triggerBackgroundSync(){
+    if(!unlocked){
+        toast('Unlock first to sync');
+        return;
+    }
     showSpinner(true);
-    await startSync({ onConflict});
+    await startSync({ onConflict });
     await renderTimeline();
-    await renderRemote();
+    await updateOverviewQueued();
+    showSpinner(false);
+    toast('Background sync completed');
+}
+
+els.syncNowBtn?.addEventListener('click', async () => {
+    showSpinner(true);
+    await startSync({ onConflict });
+    await renderTimeline();
+    await updateOverviewQueued();
     showSpinner(false);
     toast('Sync complete');
 });
 
-navigator.serviceWorker?.addEventListener('message',async(event)=>{
-    const { type} = event.data ||{};
+navigator.serviceWorker?.addEventListener('message', async (event) => {
+    const { type } = event.data || {};
     if(type === 'RUN_SYNC'){
-        await startSync({ onConflict});
+        await startSync({ onConflict });
         await renderTimeline();
     }
 });
 
 async function updateStorageUsage(){
     const est = await navigator.storage?.estimate?.();
-    const usedMB = est?.usage ? (est.usage /(1024*1024)).toFixed(2): 'n/a';
-    const quotaMB = est?.quota ? (est.quota /(1024 * 1024)).toFixed(2): 'n/a';
-    if(est?.usage && est?.quota && est.usage /est.quote >0.8){
+    if(!est) return;
+
+    const usedMB = est.usage ? (est.usage / (1024 * 1024)).toFixed(2) : 'n/a';
+    const quotaMB = est.quota ? (est.quota / (1024 * 1024)).toFixed(2) : 'n/a';
+
+    if(est.usage && est.quota && est.usage / est.quota > 0.8){
         toast('Warning: storage near browser limit');
     }
-}
- function showSpinner(flag){ if(els.spinner) els.spinner.hidden =!flag;}
- function toast(msg){
-    if(!els.snackbar) return;
-    els.snackbar.textContent = msg;
-    els.snackbar.hidden = false;
-    setTimeout();
- }
 
- async function refreshAll(){
+    console.log(`Storage usage: ${usedMB} / ${quotaMB} MB`);
+}
+
+initTheme();
+updateNetworkStatus();
+
+export { unlock, triggerBackgroundSync, requestPermission, scheduleNotification, listNotificationLog, setSimulator };
+
+async function renderRemote(){
+    const remote = getRemoteSnapshot ? getRemoteSnapshot() : [];
+    if(els.remoteList) {
+        els.remoteList.innerHTML = remote.map(item => `<li>${item.id}: ${item.title}</li>`).join('');
+        if(els.overviewRemote) els.overviewRemote.textContent = String(remote.length);
+    }
+}
+
+async function refreshAll(){
     await listItems();
     await renderTimeline();
     await updateStorageUsage();
     await renderRemote();
     toast('Unlocked successfully');
- }
- initTheme();
- updateNetworkStatus();
- if(els.unlockBtn) els.unlockBtn.addEventListener('click',async()=>{
-    const pw = els.passphrase.ariaValueMax.trim();
+}
+
+initTheme();
+updateNetworkStatus();
+
+if(els.unlockBtn) els.unlockBtn.addEventListener('click', async () => {
+    const pw = els.passphrase?.value?.trim();
     if(!pw) return alert('Enter passphrase');
     await unlock(pw);
- });
+});
 
- if(els.passphrase) els.passphrase.value = 'demo-pass';
+if(els.passphrase){
+    els.passphrase.value = 'demo-pass';
+    els.passphrase.addEventListener('keyup', async (e) => {
+        if(e.key === 'Enter'){
+            const pw = els.passphrase.value.trim();
+            if(!pw) return;
+            await unlock(pw);
+        }
+    });
+}
 
- setInterval(updateStorageUsage, 5000);
+setInterval(updateStorageUsage, 5000);
 
- window.addEventListener('online', triggerBackgroundSync);
+window.addEventListener('online', triggerBackgroundSync);
 
  async function loadSamples(){
     if(!unlocked) return alert('Unlock first');

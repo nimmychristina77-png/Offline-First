@@ -4,8 +4,8 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Offline First App</title>
-        <link rel="stylesheet" href="./manifest.webmanifest"/>
-        <link rel="stylesheet" href="">
+        <link rel="manifest" href="./manifest.webmanifest"/>
+        <link rel="stylesheet" href="./style.css">
     </head>
     <body>
         <header class = "app-header"> 
@@ -81,7 +81,7 @@
                 </div>
             </section>
 
-            <section class="card" id=""remote-card>
+            <section class="card" id="remote-card">
                 <h2>☁️ Remote Snapshot</h2>
                 <p class="card-desc">Server state after sync</p>
                 <ul id="remote-list" class="list"></ul>
@@ -98,7 +98,7 @@
             <div class="spinner-dot"></div>
             <div class="spinner-dot"></div>
         </div>
-        <div id="snacker" class="snackbar" hidden></div>
+        <div id="snackbar" class="snackbar" hidden></div>
         <script type="module" src="./app.js"></script>
     </body>
 </html>

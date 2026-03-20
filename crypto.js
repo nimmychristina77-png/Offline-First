@@ -1,5 +1,5 @@
 const textEncoder = new TextEncoder();
-const textDecoder = new textDecoder();
+const textDecoder = new TextDecoder();
 
 export async function deriveKey(passphrase, saltBytes){
     const keyMaterial = await crypto.subtle.importKey(
