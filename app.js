@@ -8,6 +8,7 @@ import { setSimulator } from './simulator.js';
 let cryptoKey;
 let unlocked = false;
 
+
 function toast(message){
     if(!els.snackbar){
         const snackbar = document.getElementById('snackbar');
@@ -28,7 +29,7 @@ function showSpinner(visible){
     }
     if(els.spinner) els.spinner.hidden = !visible;
 }
-
+//1st step
 (async function registerSW(){
     if('serviceWorker' in navigator){
         try{
@@ -40,7 +41,12 @@ function showSpinner(visible){
         }
     }
 })();
-
+//2nd step
+async function triggerBackgroundSync(){
+    const reg = await navigator.serviceWorker.getRegistration();
+    try{ await reg?.sync?.register('sync-actions');} 
+    catch(e){ console.warn('Background Sync unavailable',e);}
+}
 async function unlock(passphrase){
     try {
         cryptoKey = await deriveKey(passphrase, getOrCreateSalt());
@@ -57,7 +63,7 @@ async function unlock(passphrase){
         throw err;
     }
 }
-
+//3rd
 const els = {
     themeToggle: document.getElementById('theme-toggle'),
     loadSamplesBtn: document.getElementById('load-samples-btn'),
@@ -130,12 +136,12 @@ if(els.loadSamplesBtn) {
         toast('Samples loaded');
     });
 }
-
+//5th
 async function putItem(item){
     const enc = await encryptJSON(cryptoKey, item);
     await putEncrypted('items', { id: item.id, ...enc });
 }
-
+//4th
 async function listItems(){
     if(!unlocked) return;
     const encs = await getAll('items');
@@ -415,12 +421,12 @@ window.addEventListener('online', triggerBackgroundSync);
     if(!unlocked) return alert('Unlock first');
     const now = Date.now();
     const samples = [
-    { id: 'i-s-1', title: '📦 Project Planning', content: 'Define scope, milestones, and deliverables for Q1 2025 offline-first initiative.', ts: now, updatedAt: now, version: 1, interactions: 5 },
-    { id: 'i-s-2', title: '📝 Meeting Notes', content: 'Discussed IndexedDB strategies and encryption patterns. Action: Implement background sync.', ts: now + 1000, updatedAt: now + 1000, version: 1, interactions: 3 },
-    { id: 'i-s-3', title: '💡 Feature Ideas', content: 'Add conflict resolver UI. Consider diff visualization. Test with large datasets offline.', ts: now + 2000, updatedAt: now + 2000, version: 1, interactions: 7 },
-    { id: 'i-s-4', title: '✅ Tasks', content: 'Complete encryption module. Write unit tests. Deploy service worker to staging.', ts: now + 3000, updatedAt: now + 3000, version: 1, interactions: 2 },
-    { id: 'i-s-5', title: '🔍 Research', content: 'Web Crypto API best practices. PBKDF2 iterations benchmark. AES-GCM vs ChaCha20.', ts: now + 4000, updatedAt: now + 4000, version: 1, interactions: 4 },
-    { id: 'i-s-6', title: '📊 Analytics Data', content: 'Track offline usage patterns. Monitor sync queue depth. Measure encryption overhead.', ts: now + 5000, updatedAt: now + 5000, version: 1, interactions: 6 },
+    { id: 'i-s-1', title: ' Project Planning', content: 'Define scope, milestones, and deliverables for Q1 2025 offline-first initiative.', ts: now, updatedAt: now, version: 1, interactions: 5 },
+    { id: 'i-s-2', title: ' Meeting Notes', content: 'Discussed IndexedDB strategies and encryption patterns. Action: Implement background sync.', ts: now + 1000, updatedAt: now + 1000, version: 1, interactions: 3 },
+    { id: 'i-s-3', title: ' Feature Ideas', content: 'Add conflict resolver UI. Consider diff visualization. Test with large datasets offline.', ts: now + 2000, updatedAt: now + 2000, version: 1, interactions: 7 },
+    { id: 'i-s-4', title: ' Tasks', content: 'Complete encryption module. Write unit tests. Deploy service worker to staging.', ts: now + 3000, updatedAt: now + 3000, version: 1, interactions: 2 },
+    { id: 'i-s-5', title: ' Research', content: 'Web Crypto API best practices. PBKDF2 iterations benchmark. AES-GCM vs ChaCha20.', ts: now + 4000, updatedAt: now + 4000, version: 1, interactions: 4 },
+    { id: 'i-s-6', title: ' Analytics Data', content: 'Track offline usage patterns. Monitor sync queue depth. Measure encryption overhead.', ts: now + 5000, updatedAt: now + 5000, version: 1, interactions: 6 },
     ];
 
     for(const it of samples){
