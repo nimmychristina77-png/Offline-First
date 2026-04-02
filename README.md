@@ -9,6 +9,9 @@ I wanted to try building something that still works offline and handles syncing 
 
 This project is my attempt at exploring that idea in a simple way.
 
+BEFORE LOGIN 
+ENTER THE KEYWORD TO ENTER "ephimeral"
+
 ## What it does
 - Add and manage items locally (works without internet)
 - Search data offline
