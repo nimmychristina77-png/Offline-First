@@ -1,15 +1,15 @@
-const CACHE = 'offline-first-cache-v1';
+const CACHE = 'offline-first-cache-v2';
 const PRECACHE = [
-    '/',
-    './offline-first-app',
-    './offline-first-app/index.html',
-    './offline-first-app/style.css',
-    './offline-first-app/app.js',
-    './offline-first-app/db.js',
-    './offline-first-app/crypto.js',
-    './offline-first-app/search.js',
-    './offline-first-app/notification.js',
-    './offline-first-app/simulator.js',
+    './',
+    './index.html',
+    './style.css',
+    './app.js',
+    './db.js',
+    './crypto.js',
+    './sync.js',
+    './search.js',
+    './notification.js',
+    './simulator.js',
 ];
 let override = { offline: false, delay:0};
 self.addEventListener('install', event => {
@@ -18,7 +18,11 @@ self.addEventListener('install', event => {
 );
 });
 self.addEventListener('activate',(event) => {
-    event.waitUntil(self.clients.claim());
+    event.waitUntil(
+        caches.keys().then(keys =>
+            Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+        ).then(() => self.clients.claim())
+    );
 });
 self.addEventListener('message',(event) => {
     const { type, payload} = event.data || {};
